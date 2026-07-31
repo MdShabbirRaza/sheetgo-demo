@@ -1,1 +1,66 @@
+name: Log delivery events to Sheetgo
 
+on:
+  pull_request:
+    types: [closed]
+  release:
+    types: [published]
+
+jobs:
+  log-merge:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract ticket key and post
+        env:
+          URL: ${{ secrets.SHEETGO_URL }}
+          TOKEN: ${{ secrets.SHEETGO_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          KEY=$(printf '%s %s' "$BRANCH" "$TITLE" \
+                | grep -oE '[A-Z0-9]+-[0-9]+|[0-9]+' | head -1 || true)
+          jq -n \
+            --arg id     "${{ github.event.pull_request.merge_commit_sha }}" \
+            --arg repo   "${{ github.repository }}" \
+            --arg pr     "${{ github.event.pull_request.number }}" \
+            --arg key    "$KEY" \
+            --arg author "${{ github.event.pull_request.user.login }}" \
+            --arg opened "${{ github.event.pull_request.created_at }}" \
+            --arg merged "${{ github.event.pull_request.merged_at }}" \
+            --arg base   "${{ github.event.pull_request.base.ref }}" \
+            --arg title  "$TITLE" \
+            '{values:[
+               ["event_id","event_type","repo","pr_number","ticket_key",
+                "author","opened_at","closed_at","base_branch","title"],
+               [$id,"pr_merged",$repo,$pr,$key,
+                $author,$opened,$merged,$base,$title]
+             ]}' \
+          | curl -sS -X POST "$URL" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary @-
+
+  log-release:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post release event
+        env:
+          URL: ${{ secrets.SHEETGO_URL }}
+          TOKEN: ${{ secrets.SHEETGO_TOKEN }}
+        run: |
+          jq -n \
+            --arg id        "release-${{ github.event.release.id }}" \
+            --arg repo      "${{ github.repository }}" \
+            --arg tag       "${{ github.event.release.tag_name }}" \
+            --arg published "${{ github.event.release.published_at }}" \
+            '{values:[
+               ["event_id","event_type","repo","pr_number","ticket_key",
+                "author","opened_at","closed_at","base_branch","title"],
+               [$id,"release",$repo,"","","","",$published,"",$tag]
+             ]}' \
+          | curl -sS -X POST "$URL" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary @-
