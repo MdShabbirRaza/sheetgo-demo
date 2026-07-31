@@ -20,6 +20,7 @@ jobs:
         run: |
           KEY=$(printf '%s %s' "$BRANCH" "$TITLE" \
                   | grep -ioE '[0-9a-z]{6,}' | tail -1 || true)
+                  
           jq -n \
             --arg id     "${{ github.event.pull_request.merge_commit_sha }}" \
             --arg repo   "${{ github.repository }}" \
